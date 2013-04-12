@@ -15,25 +15,16 @@ public class SourceFile {
 	protected String name;
 	private String template;
 	private String body;
-	private Map<String, String> patterns;
 	private ISourceFileListener listener = null;
 
-	private boolean isCompilable=true;
-	private boolean isEditable=true;
-
 	public SourceFile(String name, String initialBody) {
-		this(name, initialBody, null, null);
+		this(name, initialBody, null);
 	}
 
 	public SourceFile(String name, String initialBody, String template) {
-		this(name, initialBody, template, null);
-	}
-
-	public SourceFile(String name, String initialBody, String template, Map<String, String> patterns) {
 		this.name = name;
 		this.body = initialBody;
 		setTemplate( template );
-		this.patterns = patterns;
 	}
 
 	public String getName() {
@@ -68,8 +59,10 @@ public class SourceFile {
 			if (runtimePatterns != null)
 				for (Entry<String, String> pattern : runtimePatterns.entrySet()) {
 					res = res.replaceAll(pattern.getKey(), pattern.getValue());
+				        // This is a trap to find issue #42 that I fail to reproduce
 					if (pattern.getValue().contains("\n")) { 
-						System.out.println("Damn! I integrated a pattern being more than one line long, line numbers will be wrong. Please repport this bug (alongside with the following informations)!");
+						System.out.println("Damn! I integrated a pattern being more than one line long, line numbers will be wrong."
+                                                                   +"Please repport this bug (alongside with the following informations) as it will help us fixing our issue #42!");
 						System.out.println("pattern key: "+pattern.getKey());
 						System.out.println("pattern value: "+pattern.getValue());
 						System.out.println("Exercise: "+Game.getInstance().getCurrentLesson().getCurrentExercise().getName());
@@ -79,11 +72,6 @@ public class SourceFile {
 					}
 				}
 
-			if (patterns != null)
-				for (String pattern : patterns.keySet()) {
-					System.out.println("Replace all "+pattern+" to "+patterns.get(pattern));
-					res = res.replaceAll(pattern, patterns.get(pattern));
-				}
 		} else {
 			res = this.body;
 		}
@@ -101,22 +89,6 @@ public class SourceFile {
 	public void notifyListener() {
 		if (this.listener != null)
 			this.listener.sourceFileContentHasChanged();
-	}
-
-	public boolean isCompilable() {
-		return isCompilable;
-	}
-
-	public void setCompilable(boolean isCompilable) {
-		this.isCompilable = isCompilable;
-	}
-
-	public boolean isEditable() {
-		return isEditable;
-	}
-
-	public void setEditable(boolean isEditable) {
-		this.isEditable = isEditable;
 	}
 
 	@Override

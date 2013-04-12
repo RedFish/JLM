@@ -9,16 +9,12 @@ import jlm.universe.Entity;
 import jlm.universe.GridWorld;
 import jlm.universe.World;
 
-import org.simpleframework.xml.Attribute;
 
 
 public class LightBotEntity extends Entity  {
-	@Attribute
 	private int x;
-	@Attribute
 	private int y;
 
-	@Attribute
 	Direction direction;
 	
 	StackTraceElement[] tracedStack = new StackTraceElement[1];
@@ -176,7 +172,7 @@ public class LightBotEntity extends Entity  {
 	LightBotSourceFile sf;
 	@Override
 	public void run() {
-		sf = (LightBotSourceFile) ((Exercise) Game.getInstance().getCurrentLesson().getCurrentExercise()).getPublicSourceFile(Game.LIGHTBOT,"Code");
+		sf = (LightBotSourceFile) ((Exercise) Game.getInstance().getCurrentLesson().getCurrentExercise()).getPublicSourceFile(Game.LIGHTBOT,0);
 				
 		/* Run main */
 		run("main",sf.getMain());

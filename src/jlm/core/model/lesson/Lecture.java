@@ -1,6 +1,7 @@
 package jlm.core.model.lesson;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -8,13 +9,14 @@ import java.util.regex.Pattern;
 
 import jlm.core.model.Game;
 import jlm.core.model.ProgrammingLanguage;
-import jlm.core.model.Reader;
+import jlm.core.model.FileUtils;
 
 /** Represents an element of the pedagogic sequence, be it a lecture or 
  * an exercise. A better name would be useful, but I feel limited in 
  * English today. Sorry. */
 public abstract class Lecture {
-
+	private String id; // used in session to identify this lecture or exercise
+	
 	public static final String HTMLTipHeader = "<head>\n"+
 			"  <meta content=\"text/html; charset=UTF-8\" />\n"+	
 			"  <style>\n"+
@@ -44,6 +46,10 @@ public abstract class Lecture {
 	public Lecture(Lesson lesson) {
 		this.lesson = lesson;
 		loadHTMLMission();
+		id = lesson.getId()+getClass().getName();
+	}
+	public String getId() {
+		return id;
 	}
 
 	public void setName(String n) {
@@ -104,18 +110,16 @@ public abstract class Lecture {
 		return this.tips.get(tipsId);
 	}
 
-	public boolean isSuccessfullyPassed() {
-		return false;//FIXME
-	}
-
 	public void loadHTMLMission() {
 		String filename = getClass().getCanonicalName().replace('.',File.separatorChar);
-		
-		StringBuffer sb = Reader.fileToStringBuffer(filename, "txt",true);
-		if (sb==null) {
+	
+		StringBuffer sb = null;
+		try {
+			sb = FileUtils.readContentAsText(filename, "txt",true);
+		} catch (IOException ex) {
 			setMission("File "+filename+" not found.");
-			return;
-		}		
+			return;			
+		}
 		String str = sb.toString();
 	
 		/* search the mission name */

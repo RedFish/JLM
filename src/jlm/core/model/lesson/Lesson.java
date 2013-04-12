@@ -1,13 +1,13 @@
 package jlm.core.model.lesson;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import jlm.core.model.Game;
-import jlm.core.model.Reader;
+import jlm.core.model.FileUtils;
 
 import org.apache.commons.collections15.Factory;
 
@@ -17,6 +17,7 @@ import edu.uci.ics.jung.graph.Graph;
 
 public abstract class Lesson {
 	private String name;
+	private String id;
 	protected String about = "(no information provided by the lesson)";
 	protected ArrayList<Lecture> lectures = new ArrayList<Lecture>();
 	
@@ -40,26 +41,38 @@ public abstract class Lesson {
 			return i++;
 		}};
 	
-	protected boolean sequential = false;
-	/** if true, one must succeed in first exercise before trying next ones */
-
 	public Lesson() {
-		loadExercises(); /* FIXME: remove this line when session saver can deal with laziness */
-	}
+		loadExercises(); /* FIXME: remove this line when session savers can deal with laziness */
+		
+		id = getClass().getCanonicalName();
+		Pattern namePattern = Pattern.compile(".Main$");
+		Matcher nameMatcher = namePattern.matcher(id);
+		id = nameMatcher.replaceAll("");
 
+		namePattern = Pattern.compile("^lessons.");
+		nameMatcher = namePattern.matcher(id);
+		id = nameMatcher.replaceAll("");
+
+	}
+	
+	public String getId() {
+		return id;
+	}
+	
 	private boolean aboutLoaded = false;
 	private void loadAboutAndName() {
 		aboutLoaded = true;
 
 		/* read it */
 		String filename = getClass().getCanonicalName().replace('.',File.separatorChar);
-		StringBuffer sb = Reader.fileToStringBuffer(filename,"html",true);
-		if (sb==null) {
+		StringBuffer sb = null;
+		try {
+			sb = FileUtils.readContentAsText(filename,"html",true);
+		} catch (IOException ex) {
 			about = "File "+filename+".html not found.";
 			name = filename;
 			return;
 		}
-
 		String str = sb.toString();
 
 		/* search the mission name */
@@ -85,29 +98,19 @@ public abstract class Lesson {
 	}
 	
 	public String getAboutFileName() {
+		//FIXME: file is loaded just to know if it is present?
+		
 		String filename = getClass().getCanonicalName().replace('.',File.separatorChar);
-		StringBuffer sb = Reader.fileToStringBuffer(filename,"md",true);
-		if (sb==null) {
+		
+		try { 
+		   StringBuffer sb = FileUtils.readContentAsText(filename,"md",true);
+		} catch (Exception ex) {
 			about = "File "+filename+".md not found.";
 			name = filename;
-			return about;
+			return about;		  
 		}
-		
 		return filename;
 	}
-
-	public boolean isSequential() {		
-		String seq = Game.getProperty(getClass().getCanonicalName()+".sequential");
-		if (seq != null) {
-			return ! seq.equals("false"); // sequential by default
-		} else {
-			return this.sequential;
-		}
-	}
-	
-	public void setSequential(boolean enabled) {
-		this.sequential = enabled;
-	}	
 
 	Lecture rootExo, lastAdded;
 	public Lecture getRootExo() {
@@ -183,32 +186,6 @@ public abstract class Lesson {
 		return this.lectures.size();
 	}
 
-	public boolean isAccessible(Lecture exo) {
-		if (isSequential()) {
-			int index = this.lectures.indexOf(exo);
-			if (index == 0)
-				return true;
-			if (index > 0)
-				return this.lectures.get(index-1).isSuccessfullyPassed();
-			return false;
-		} else {
-			return true;
-		}
-	}
-
-	public boolean isSuccessfullyCompleted() {
-		// TODO: too lazy, to add a boolean 'completed' which is updated when a test is passed 
-		if (isSequential()) {
-			return this.lectures.get(this.lectures.size()-1).isSuccessfullyPassed();			
-		} else {
-			for (Lecture exo : this.lectures) {
-				if (!exo.isSuccessfullyPassed())
-					return false;
-			}
-			return true;
-		}
-	}
-	
 	/* Methods to retrieve the dependencies so that the lesson navigator can display them */
 	public Graph<Lecture,Integer> getExercisesGraph() {
 		return exercisesGraph;

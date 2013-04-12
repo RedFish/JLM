@@ -17,23 +17,15 @@ import javax.swing.ImageIcon;
 import jlm.core.model.Game;
 import jlm.core.model.Logger;
 import jlm.core.model.ProgrammingLanguage;
-import jlm.core.model.Reader;
+import jlm.core.model.FileUtils;
 import jlm.core.ui.WorldView;
 
-import org.simpleframework.xml.Attribute;
-import org.simpleframework.xml.ElementList;
-import org.simpleframework.xml.Root;
-
-@Root
 public abstract class World {
-	@Attribute
 	private boolean isDelayed = false; // whether we display interactively or not
 	private int delay = 100; // delay between two instruction executions of an entity.
 
-	@ElementList
 	protected ArrayList<Entity> entities = new ArrayList<Entity>();
 
-	@Attribute
 	private String name;
 
 	public World(String name) {
@@ -329,8 +321,10 @@ public abstract class World {
 	public String getAbout() {
 		if (about == null) {
 			String filename = getClass().getCanonicalName().replace('.', File.separatorChar);
-			StringBuffer sb = Reader.fileToStringBuffer(filename, "md", true);
-			if (sb==null) {
+			StringBuffer sb = null;
+			try {
+				sb = FileUtils.readContentAsText(filename, "md", true);
+			} catch (IOException ex) {
 				about = "File "+filename+".md not found.";
 				return about;
 			}
@@ -343,8 +337,9 @@ public abstract class World {
 	
 	public String getAboutFilename() {
 			String filename = getClass().getCanonicalName().replace('.', File.separatorChar);
-			StringBuffer sb = Reader.fileToStringBuffer(filename, "md", true);
-			if (sb==null) {
+			try {
+				StringBuffer sb = FileUtils.readContentAsText(filename, "md", true);
+			} catch (Exception ex) {
 				about = "File "+filename+".md not found.";
 				return about;
 			}

@@ -1,7 +1,6 @@
 package jlm.core.model.lesson;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,7 +12,7 @@ import java.util.regex.Pattern;
 
 import jlm.core.model.Game;
 import jlm.core.model.ProgrammingLanguage;
-import jlm.core.model.Reader;
+import jlm.core.model.FileUtils;
 import jlm.universe.Entity;
 import jlm.universe.World;
 
@@ -21,7 +20,7 @@ import jlm.universe.World;
 
 public abstract class ExerciseTemplated extends Exercise {
 
-	protected String tabName = getClass().getSimpleName(); /** Name of the tab in editor */
+	protected String tabName = getClass().getSimpleName(); /** Name of the tab in editor -- must be a valid java identifier */
 	protected ArrayList<String> tabsNames = null;
 	protected String entityName = getClass().getCanonicalName()+"Entity"; /** name of the class of entities being solution of this exercise */
 	protected ArrayList<String> entitiesNames = null;
@@ -30,41 +29,49 @@ public abstract class ExerciseTemplated extends Exercise {
 		super(lesson);
 	}
 
-	protected void loadMap(World w,String path) {
-		BufferedReader br = Reader.fileReader( path,"map",false);
-		if (br==null)
-			throw new RuntimeException("Unable to load "+path+".map");
+	protected void loadMap(World intoWorld, String path) {
+		BufferedReader br = null;
 		try {
-			w.readFromFile(br);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}		
-	}
-	protected void loadMap(World intoWorld) {
-		BufferedReader br = Reader.fileReader( getClass().getCanonicalName(),"map",false);
-		if (br==null)
-			// TODO: not very nice, particularly when we were expecting to load a map and it is not included in the .jar file ;)
-			return;
-		try {
+			br = FileUtils.newFileReader(path, "map", false);
 			intoWorld.readFromFile(br);
-		} catch (IOException e) {
-			e.printStackTrace();
+		} catch (IOException ex) {
+			ex.printStackTrace();
+			throw new RuntimeException("Unable to load "+path+".map");	
+		} finally {
+			try {
+				br.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 		}
 	}
-
+	
+	protected void loadMap(World intoWorld) {
+		loadMap(intoWorld, getClass().getCanonicalName());
+	}
 
 	public void newSourceFromFile(ProgrammingLanguage lang, String name, String filename) throws NoSuchEntityException {
 		newSourceFromFile(lang, name, filename, "");
 	}
 	public void newSourceFromFile(ProgrammingLanguage lang, String name, String filename,String patternString) throws NoSuchEntityException {
 
-		StringBuffer sb = Reader.fileToStringBuffer("src"+File.separator+filename,lang.getExt(),false);
+		/*
+		StringBuffer sb = Reader.readContentAsText("src"+File.separator+filename,lang.getExt(),false);
 
 		if (sb==null)
-			sb = Reader.fileToStringBuffer(filename,lang.getExt(),false);
+			sb = Reader.readContentAsText(filename,lang.getExt(),false);
 		if (sb==null) {
 			throw new NoSuchEntityException("Source file "+filename+"."+lang.getExt()+" not found.");
 		}
+		*/
+		StringBuffer sb = null;
+		try {
+			sb = FileUtils.readContentAsText(filename, lang.getExt(), false);
+		} catch (IOException ex) {
+			throw new NoSuchEntityException("Source file "+filename+"."+lang.getExt()+" not found.");			
+		}
+		
+		
 		/* Remove line comments since at some point, we put everything on one line only, 
 		 * so this would comment the end of the template and break everything */
 		Pattern lineCommentPattern = Pattern.compile("//.*$");
@@ -291,7 +298,7 @@ public abstract class ExerciseTemplated extends Exercise {
 		for (ProgrammingLanguage lang: Game.getProgrammingLanguages()) {
 			boolean foundThisLanguage = false;
 			String searchedName = null;
-			for (SourceFile sf : getSourceFiles(lang)) {
+			for (SourceFile sf : getSourceFilesList(lang)) {
 				if (searchedName == null) {//lazy initialization
 					if (tabsNames != null) {
 						// If entities were added, use the name of the first one to detect whether this language is valid 
@@ -326,7 +333,7 @@ public abstract class ExerciseTemplated extends Exercise {
 			}
 		}
 		if (!foundALanguage) {
-			throw new RuntimeException("Cannot find an entity for this exercise. You should fix your pathes and such");
+			throw new RuntimeException("Cannot find an entity for this exercise. You should fix your paths and such");
 		}
 		computeAnswer();
 	}
@@ -374,7 +381,8 @@ public abstract class ExerciseTemplated extends Exercise {
 			answerWorld[i].reset(initialWorld[i]);
 			answerWorld[i].doDelay();
 		}
-
+		ProgrammingLanguage current = Game.getProgrammingLanguage();
+		Game.getInstance().setProgramingLanguage(Game.JAVA);
 		if (entitiesNames == null)
 			mutateEntity(answerWorld, entityName);
 		else
@@ -382,5 +390,6 @@ public abstract class ExerciseTemplated extends Exercise {
 
 		for (int i=0; i<answerWorld.length; i++)
 			answerWorld[i].runEntities(runnerVect);
+		Game.getInstance().setProgramingLanguage(current);
 	}
 }

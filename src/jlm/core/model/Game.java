@@ -1,22 +1,50 @@
 package jlm.core.model;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.InvalidPropertiesFormatException;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.Vector;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
+
+import javax.swing.JOptionPane;
+
 import jlm.core.GameListener;
 import jlm.core.GameStateListener;
 import jlm.core.ProgLangChangesListener;
 import jlm.core.StatusStateListener;
-import jlm.core.JLMClassLoader;
 import jlm.core.model.lesson.Exercise;
 import jlm.core.model.lesson.ExerciseTemplated;
 import jlm.core.model.lesson.Lecture;
 import jlm.core.model.lesson.Lesson;
+import jlm.core.model.session.ISessionKit;
+import jlm.core.model.session.SessionDB;
+import jlm.core.model.session.ZipSessionKit;
+import jlm.core.model.tracking.HeartBeatSpy;
+import jlm.core.model.tracking.IdenticaSpy;
+import jlm.core.model.tracking.LocalFileSpy;
+import jlm.core.model.tracking.ProgressSpyListener;
+import jlm.core.model.tracking.ServerSpyAppEngine;
+import jlm.core.model.tracking.TwitterSpy;
 import jlm.core.ui.MainFrame;
 import jlm.universe.Entity;
 import jlm.universe.IWorldView;
 import jlm.universe.World;
-
-import javax.swing.*;
-import java.io.*;
-import java.util.*;
 
 /*
  *  core model which contains all known exercises.
@@ -62,6 +90,7 @@ public class Game implements IWorldView {
 
 	private LogWriter outputWriter;
 
+	public SessionDB studentWork = new SessionDB();
 	private ISessionKit sessionKit = new ZipSessionKit(this);
 
 	private static boolean ongoingInitialization = false;
@@ -93,27 +122,27 @@ public class Game implements IWorldView {
 	 * Load the chooser, stored in jlm.core.ui.chooser
 	 */
 	public void loadChooser() {
-		if (JLMClassLoader.isInAJAR())
-			JLMClassLoader.setInAJAR(false);
-		
-		Game.instance.loadLesson("lessons.chooser");
+		Game.instance.switchLesson("lessons.chooser");
 	}
 	
 	
-	/**
-	 * Load the lesson in the package given in parameter
+	/** Change the current lesson.
+	 * 
+	 * Also, initialize the newly used lesson on need. It must already be in the classpath 
+	 * (use @loadLesson() if you want to load a lesson located in an external jar file)
+	 *  
+	 * @param lessonName package name of the lesson to load 
 	 */
-	public Lesson loadLesson(String lessonName) {
+	
+	public Lesson switchLesson(String lessonName) {
 		statusArgAdd("Load lesson " + lessonName);
-		// Check whether this lesson is already in cache. 
-		//   (this is because loading a lesson is possibly very long: we have to compute the solution of every exercise)  
-		Lesson lesson = lessons.get(lessonName);
 		
-		// If not cached, load it from file, and store it in cache
-		if (lesson == null) { 
+		// Try caching the lesson to avoid the possibly long loading time during which we compute the solution of each exercise  
+		Lesson lesson = lessons.get(lessonName);
+		if (lesson == null) { // we have to load it 
 			try {
 				// This is where we assume here that each lesson contains a Main object, instantiating the Lesson class.
-				// We manualy build a call to the constructor of this object, and fire it
+				// We manually build a call to the constructor of this object, and fire it
 				// This creates such an object, which is in charge of creating the whole lesson (including exercises) from its constructor
 				lesson = (Lesson) Class.forName(lessonName + ".Main").newInstance();
 				
@@ -123,7 +152,9 @@ public class Game implements IWorldView {
 			} catch (IllegalAccessException e) {
 				e.printStackTrace();
 			} catch (ClassNotFoundException e) {
-				e.printStackTrace();
+				System.err.println("Cannot switch to lesson "+lessonName+": class Main not found.");
+				statusArgRemove("Load lesson "+lessonName);				
+				return getCurrentLesson();
 			}
 		}
 		sessionKit.loadLesson(null, lesson);
@@ -131,9 +162,64 @@ public class Game implements IWorldView {
 		statusArgRemove("Load lesson "+lessonName);
 		return lesson;
 	}
-	public void changeLesson(String lessonName) {
-		setCurrentLesson(lessons.get(lessonName));
-	}
+	private Set<String> usedJARs = new HashSet<String>(); // cache used in loadLessonFromJAR()
+	/** Load a new lesson from an external JAR file.
+	 *  
+	 * This will only work if the system classloader is an URLClassLoader. 
+	 * If your JVM gave you something else (and if you failed to change it from the command line or whatever), this will fail with an exception. 
+	 * 
+	 * @param path Path to the JAR file
+	 * @throws LessonLoadingException if the JAR file is inexistent or invalid (or if the system classloader does not accept URLs)
+	 */
+	public void loadLessonFromJAR(File jar) throws LessonLoadingException {
+		
+		if (!jar.exists())
+			throw new LessonLoadingException("File "+jar.getName()+" does not exist");
+		
+		
+		// Check if the JAR has already been added. If not, load it in the classloader.
+		if (!usedJARs.contains(jar.getAbsolutePath())) {	
+			URLClassLoader sysloader = (URLClassLoader)ClassLoader.getSystemClassLoader();
+			Class<URLClassLoader> sysclass = URLClassLoader.class;
+			
+			URL urlOfJar;
+			try {
+				urlOfJar = jar.toURI().toURL();
+			} catch (IOException e1) {
+				throw new LessonLoadingException("Error while reading the jarfile "+jar.getName(),e1);
+			}
+	        
+	        try {
+	        	// Hell yeah. That method is usually private, but I can change it that easily.
+	        	// Some people even call this bullshit "security"...
+	        	
+	            Method method = sysclass.getDeclaredMethod("addURL",new Class[]{URL.class});
+	            method.setAccessible(true);
+	            method.invoke(sysloader,new Object[]{ urlOfJar });
+	        } catch (Throwable t) {
+	        	throw new LessonLoadingException("Internal Error: The system classloader refused to load the URL of this lesson file. You may want to change the JVM classloader from the command line.",t);
+	        }
+	        
+	        usedJARs.add(jar.getAbsolutePath());
+		}
+        
+		// Load the JAR manifest file to retrieve the lesson's package name in it
+		Manifest manifest;
+		try {
+			manifest = new JarFile(jar).getManifest();
+		} catch (Exception e) {
+			throw new LessonLoadingException("Invalid lesson file (Manifest not found): "+jar.getName(), e);
+		}
+		
+		String lessonPackage = manifest.getMainAttributes().getValue("LessonPackage");
+		if (lessonPackage == null)
+			throw new LessonLoadingException("Invalid lesson file (Attribute 'LessonPackage' not found in Manifest): "+jar.getName());
+		
+		// We are ready to launch this lesson
+		Game.getInstance().switchLesson("lessons." + lessonPackage);
+    }//end method
+
+	
 
 	public static void addInitThread(Thread t) {
 		initRunners.add(t);
@@ -158,29 +244,27 @@ public class Game implements IWorldView {
 
 	// only to avoid that exercise views register as listener of a lesson
 	public void setCurrentExercise(Lecture lect) {
-		if (lect.getLesson().isAccessible(lect)) {
-			fireCurrentExerciseChanged(lect);
-			this.currentLesson.setCurrentExercise(lect);
-			if (lect instanceof Exercise) {
-				Exercise exo = (Exercise) lect;
-				exo.reset();
-				setSelectedWorld(exo.getWorld(0));
+		fireCurrentExerciseChanged(lect);
+		this.currentLesson.setCurrentExercise(lect);
+		if (lect instanceof Exercise) {
+			Exercise exo = (Exercise) lect;
+			exo.reset();
+			setSelectedWorld(exo.getWorld(0));
 
-				boolean seenJava=false;
-				for (ProgrammingLanguage l:exo.getProgLanguages()) {
-					if (l.equals(programmingLanguage))
-						return; /* The exo accepts the language we currently have */
-					if (l.equals(Game.JAVA))
-						seenJava = true;
-				}
-				/* Use java as a fallback programming language (if the exo accepts it)  */
-				if (seenJava)
-					setProgramingLanguage(Game.JAVA);
-				/* The exo don't like our currently set language, nor Java. Let's pick its first selected language */
-				setProgramingLanguage( exo.getProgLanguages().iterator().next() );
+			boolean seenJava=false;
+			for (ProgrammingLanguage l:exo.getProgLanguages()) {
+				if (l.equals(programmingLanguage))
+					return; /* The exo accepts the language we currently have */
+				if (l.equals(Game.JAVA))
+					seenJava = true;
 			}
-			MainFrame.getInstance().currentExerciseHasChanged(lect); // make sure that the right language is selected -- yeah that's a ugly way of doing it
+			/* Use java as a fallback programming language (if the exo accepts it)  */
+			if (seenJava)
+				setProgramingLanguage(Game.JAVA);
+			/* The exo don't like our currently set language, nor Java. Let's pick its first selected language */
+			setProgramingLanguage( exo.getProgLanguages().iterator().next() );
 		}
+		MainFrame.getInstance().currentExerciseHasChanged(lect); // make sure that the right language is selected -- yeah that's a ugly way of doing it
 	}
 
 	public World getSelectedWorld() {
@@ -339,7 +423,9 @@ public class Game implements IWorldView {
 		for (Lesson l : this.lessons.values())
 			for (Lecture lect : l.exercises())
 				if (lect instanceof Exercise)
-					((Exercise) lect).failed();
+					for (ProgrammingLanguage lang:((Exercise) lect).getProgLanguages()) 
+						Game.getInstance().studentWork.setPassed(lect.getId(), lang, false);
+
 		fireCurrentExerciseChanged(currentLesson.getCurrentExercise());
 	}
 
@@ -614,7 +700,7 @@ public class Game implements IWorldView {
 		}
 	}
 	public void setLocale(String lang) {
-		Reader.setLocale(lang);
+		FileUtils.setLocale(lang);
 		for (Lesson lesson : lessons.values()) {
 			for (Lecture lect:lesson.exercises()) {
 				if (lect instanceof ExerciseTemplated) {
@@ -633,7 +719,7 @@ public class Game implements IWorldView {
 			return;
 
 		if (isValidProgLanguage(newLanguage)) {
-			System.out.println("Switch programming language to "+newLanguage);
+			//System.out.println("Switch programming language to "+newLanguage);
 			this.programmingLanguage = newLanguage;
 			fireProgLangChange(newLanguage);
 			return;

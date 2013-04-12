@@ -13,7 +13,7 @@ import java.io.IOException;
 import java.util.Observable;
 import java.util.Scanner;
 
-import jlm.core.model.Reader;
+import jlm.core.model.FileUtils;
 
 public class MarkdownDocument extends Observable
 {
@@ -54,15 +54,15 @@ public class MarkdownDocument extends Observable
 
 		scanner.close();
 		*/
-		StringBuffer sb = Reader.fileToStringBuffer(chemin, "md",true);
-		if (sb==null) {
+		try {
+			StringBuffer sb = FileUtils.readContentAsText(chemin, "md",true);
+			texte = sb.toString();
+			setLoad_editor(true);
+			setChanged();
+			notifyObservers();
+		} catch (Exception ex) {
 			System.err.println("File "+chemin+" not found.");
-			return;
 		}		
-		texte = sb.toString();
-		setLoad_editor(true);
-		setChanged();
-		notifyObservers();
 	}
 	
 	public void enregistrerDocument()
